@@ -130,12 +130,11 @@ float opSmoothIntersection(float d1, float d2, float k) {
 }
 
 // The below functions are modified so they can be applied to individual objects
-vec3 opTwist(vec3 p) {
-  const float k = 1.0; // Number of rotations
+vec3 opTwist(vec3 p, const float k) {
   float c = cos(k * p.y);
   float s = sin(k * p.y);
-  mat2 m = mat2(c, -s, s, c); // Rotation matrix about y axis
-  return vec3(m * p.xz, p.y);
+  mat3 m = mat3(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0); // Rotation matrix
+  return m * p;
 }
 
 float opDisplacement(float sdf, vec3 p) {
@@ -154,7 +153,7 @@ vec3 opTranslate(vec3 p, vec3 t) {
 vec3 opRotateZ(vec3 p, float theta) {
   float c = cos(theta * 0.01745329251);
   float s = sin(theta * 0.01745329251);
-  mat3 r = mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0); // Inverse rotation
+  mat3 r = mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0);
   return r * p;
 }
 
@@ -174,12 +173,6 @@ struct SceneObject {
   // Source: http://www.michaelwalczyk.com/blog/2017/5/25/ray-marching
 float sphereSDF(vec3 p, vec3 c, float r) {
   return length(p - c) - r;
-}
-
-// SDF for a box of side length b centered at the origin
-float cubeSDF(vec3 p, vec3 b) {
-  vec3 d = abs(p) - b;
-  return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
 }
 
 // SDF for a rounded cone shape
@@ -205,29 +198,70 @@ float vertCapsuleSDF(vec3 p, float h, float r) {
   return length(q) - r;
 }
 
+// The eyes of the Luma need to be treated separately since they
+// use a different reflection model and have a different base color
+float lumaEyesSDF(vec3 p, vec3 c) {
+  return vertCapsuleSDF(opTranslate(opSymX(p - c), vec3(0.3, 0.1, -0.85)), 0.25, 0.15);
+}
+
 float lumaSDF(vec3 p, vec3 c) {
   float body = sphereSDF(p, c, 1.0);
-  float legs = roundConeSDF(opTranslate(opSymX(p - c), vec3(0.4, -1.1, 0.0)), 0.1, 0.25, 0.5);
+  float legs = roundConeSDF(opTranslate(opSymX(p - c), vec3(0.46, -1.15, 0.0)), 0.1, 0.26, 0.5);
   float bodyLegs = opSmoothUnion(body, legs, 0.15);
 
   float arms = roundConeSDF(opTranslate(opRotateZ(opSymX(p - c + vec3(0.0, -1.25, 0.0)), 60.0), vec3(1.5, 0.0, 0.0)), 0.3, 0.1, 0.6);
   float armsBodyLegs = opSmoothUnion(bodyLegs, arms, 0.08);
 
-  float eyes = vertCapsuleSDF(opTranslate(opSymX(p - c), vec3(0.3, 0.2, -0.9)), 0.2, 0.1);
-  float armsBodyLegsEyes = opSmoothUnion(armsBodyLegs, eyes, 0.05);
+  vec3 twist1 = opTwist(opTranslate(p - c, vec3(0.0, 0.7, 0.0)), 0.8);
+  float swirl1 = roundConeSDF(twist1, 0.4, 0.1, 0.75);
+  float addTwist = opSmoothUnion(armsBodyLegs, swirl1, 0.3);
 
-  // float swirl = 
+  vec3 twist2 = opTwist(opRotateZ(opTranslate(p - c, vec3(-0.49, 1.365, 0.0)), -92.0), 1.6);
+  float swirl2 = roundConeSDF(twist2, 0.07, 0.05, 0.25);
+  
+  return opSmoothUnion(addTwist, swirl2, 0.075);
+}
 
-  return armsBodyLegsEyes;
+float octahedronSDF(vec3 p, vec3 c, float s) {
+  vec3 q = abs(p - c);
+  float m = q.x + q.y + q.z - s;
+  vec3 r;
+  if (3.0 * q.x < m) {
+    r = q.xyz;
+  }
+  else if (3.0 * q.y < m) {
+    r = q.yzx;
+  }
+  else if (3.0 * q.z < m) {
+    r = q.zxy;
+  }
+  else {
+    return m * 0.57735027;
+  }
+
+  float k = clamp(0.5 * (r.z - r.y + s), 0.0, s);
+  return length(vec3(r.x, r.y - s + k, r.z - k));
+}
+
+float cubeSDF(vec3 p, vec3 c, vec3 b) {
+  vec3 d = abs(p - c) - b;
+  return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
+}
+
+float starbitSDF(vec3 p, vec3 c) {
+  float oct = octahedronSDF(p, c, 2.0);
+  float cube = cubeSDF(p, c, vec3(1.0));
+  return opSmoothUnion(oct, cube, 0.25);
 }
 
 SceneObject sceneSDF(vec3 p) {
   SceneObject scene[1];
-  // scene[0] = SceneObject(0, sphereSDF(p, vec3(2.6, 0.5, 0.0), 1.0), vec3(1.0));
-  // scene[1] = SceneObject(1, cubeSDF(opTwist(p), vec3(1.0)), vec3(1.0));
-  // scene[2] = SceneObject(3, sphereSDF(p, vec3(3.0, 0.0, 2.0), 1.0), vec3(1.0));
-  // scene[3] = SceneObject(0, cubeSDF(opTranslate(p, vec3(0.0, 5.0, 0.0)), vec3(1.0)), vec3(1.0));
-  scene[0] = SceneObject(3, lumaSDF(p, vec3(2.0, 1.0, 0.0)), vec3(1.0));
+
+  // One luma requires two scene objects due to the different reflection model in the eyes
+  // scene[0] = SceneObject(3, lumaSDF(p, vec3(2.0, 1.0, 0.0)), vec3(1.0));
+  // scene[1] = SceneObject(1, lumaEyesSDF(p, vec3(2.0, 1.0, 0.0)), vec3(0.3));
+
+  scene[0] = SceneObject(1, starbitSDF(p, vec3(0.0)), vec3(1.0));
 
   float minDist = 100000000.0;
   int closest = 0;
