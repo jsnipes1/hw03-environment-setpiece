@@ -250,7 +250,7 @@ float cubeSDF(vec3 p, vec3 c, vec3 b) {
 
 float starbitSDF(vec3 p, vec3 c) {
   float oct = octahedronSDF(p, c, 2.0);
-  float cube = cubeSDF(p, c, vec3(1.0));
+  float cube = cubeSDF(p, c, vec3(0.97));
   return opSmoothUnion(oct, cube, 0.25);
 }
 
@@ -261,7 +261,7 @@ SceneObject sceneSDF(vec3 p) {
   // scene[0] = SceneObject(3, lumaSDF(p, vec3(2.0, 1.0, 0.0)), vec3(1.0));
   // scene[1] = SceneObject(1, lumaEyesSDF(p, vec3(2.0, 1.0, 0.0)), vec3(0.3));
 
-  scene[0] = SceneObject(1, starbitSDF(p, vec3(0.0)), vec3(1.0));
+  scene[0] = SceneObject(2, starbitSDF(p, vec3(0.0)), vec3(1.0));
 
   float minDist = 100000000.0;
   int closest = 0;
@@ -316,6 +316,47 @@ float ambientOcclusion(vec3 p, vec3 n, float k) {
 }
 ///////////////////////////////
 
+/////// BACKGROUND ////////
+float starFBM(vec3 q) {
+  float acc = 0.0;
+  float amp = 1.0;
+  float maxAmp = 0.0;
+
+  for (int i = 0; i < 4; ++i) {
+    maxAmp += amp;
+    acc += noise(q) * amp;
+    amp *= 0.5;
+    q *= 2.0;
+  }
+  return 1.2 * acc / maxAmp;
+}
+
+vec4 galaxy(vec3 p) {
+  // Based on Joe's galaxy/nebula shader
+  float star1 = starFBM(p * 5.7);
+  float star2 = starFBM(p + vec3(1.27, 6.298, 4.243));
+  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.1 * u_Time * fbm(p)));
+  float starTotal = star1 * star2 * star3 * 3.0;
+
+  float falloff = 0.55;
+  float noiseThreshold = 1.9;
+
+  starTotal = clamp(starTotal - noiseThreshold + falloff, 0.0, 1.0);
+
+  float weight = starTotal / (7.0 * falloff);
+  return vec4(18.0 * weight * vec3(star1 * 0.6, star2 * 0.4, star3 * 0.4), 1.0);
+}
+
+// vec4 nebula(Ray r) {
+//   float t = pattern(r.direction * u_Time * 0.0003);
+//   vec3 a = vec3(-0.452, -0.082, -0.082);
+//   vec3 b = vec3(0.5);
+//   vec3 c = vec3(1.0, 0.878, 0.558);
+//   vec3 d = vec3(-0.982, 0.348, 0.667);
+//   return vec4(palette(t, a, b, c, d), 0.0) + galaxy(pointOnRay(r, 400.0));
+// }
+///////////////////////////
+
 //// REFLECTION MODELS ////
 // From Emily's Shadertoy example
 vec4 lambert(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r) {
@@ -352,12 +393,13 @@ vec4 blinnPhong(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray
   return vec4(sumColor, 1.0);
 }
 
-// TODO: For star bits; maybe use Fresnel + Blinn-Phong
-vec4 glass(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r) {
-  return vec4(1.0);
-}
+// float fresnel(vec3 v, vec3 n, float r) {
+//   float cosX = 1.0 - max(dot(v, n), 0.0);
+//   float cos5 = pow(cosX, 5.0);
+//   cos5 = clamp(cos5 * (1.0 - r) + r, 0.0, 1.0);
+//   return cos5;
+// }
 
-// TODO: For Lumas
 // From class slides/GDC talk
 vec4 subsurfaceScatter(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray view, float thinness) {
   // Tunable parameters
@@ -379,46 +421,16 @@ vec4 subsurfaceScatter(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseCol
   totalCol /= 3.0;
   return vec4(totalCol, 1.0);
 }
-///////////////////////////
 
-/////// BACKGROUND ////////
-float starFBM(vec3 q) {
-  float acc = 0.0;
-  float amp = 1.0;
-  float maxAmp = 0.0;
+vec4 glossy(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r) {
+  vec3 nHat = surfaceNormal(p);
+  vec3 vHat = normalize(u_Eye - p);
 
-  for (int i = 0; i < 4; ++i) {
-    maxAmp += amp;
-    acc += noise(q) * amp;
-    amp *= 0.5;
-    q *= 2.0;
-  }
-  return 1.2 * acc / maxAmp;
-}
+  float fresnel = 1.0 - max(0.0, dot(vHat, nHat));
+  fresnel = 0.25 + 0.75 * fresnel;
 
-vec4 galaxy(vec3 p) {
-  // Based on Joe's galaxy/nebula shader
-  float star1 = starFBM(p * 5.7);
-  float star2 = starFBM(p + vec3(1.27, 6.298, 4.243));
-  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.1 * u_Time * fbm(p)));
-  float starTotal = star1 * star2 * star3 * 3.0;
-
-  float falloff = 0.55;
-  float noiseThreshold = 1.9;
-
-  starTotal = clamp(starTotal - noiseThreshold + falloff, 0.0, 1.0);
-
-  float weight = starTotal / (7.0 * falloff);
-  return vec4(18.0 * weight * vec3(star1 * 0.6, star2 * 0.4, star3 * 0.4), 1.0);
-}
-
-vec4 nebula(Ray r) {
-  float t = pattern(r.direction * u_Time * 0.0003);
-  vec3 a = vec3(-0.452, -0.082, -0.082);
-  vec3 b = vec3(0.5);
-  vec3 c = vec3(1.0, 0.878, 0.558);
-  vec3 d = vec3(-0.982, 0.348, 0.667);
-  return vec4(palette(t, a, b, c, d), 0.0) + galaxy(pointOnRay(r, 400.0));
+  vec3 newCol = mix(baseColor, galaxy(reflect(r.direction, nHat)).xyz, fresnel);
+  return vec4(2.0 * blinnPhong(lights, lightColors, p, newCol, r).xyz - lambert(lights, lightColors, p, baseColor, r).xyz, 1.0);
 }
 ///////////////////////////
 
@@ -458,7 +470,7 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
           break;
         // Glass
         case 2:
-          color += glass(lights, lightColors, p, shape.baseColor, r) * ao;
+          color += glossy(lights, lightColors, p, shape.baseColor, r);
           break;
         // Subsurface scattering
         case 3:
