@@ -9,7 +9,7 @@ in vec2 fs_Pos;
 out vec4 out_Col;
 
 // Concept: Super Mario Galaxy scene, including...
-  // Lumas (combined SDFs, twist operations, subsurface scattering, animated?)
+  // Lumas (done)
   // Flying/floating star bits (animated; use sawtooth function to regenerate the same ones)
     // Make from octahedron intersected with cube
   // Small, distinct planets (use low-octave noise to distort normals)
@@ -106,7 +106,6 @@ vec3 palette(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
 ///////////////////////////
 
 //////// Toolbox Functions from IQ ////////
-// Used to display multiple SDFs in one scene
 float opUnion(float d1, float d2) {  
   return min(d1, d2);
 }
@@ -133,13 +132,14 @@ float opSmoothIntersection(float d1, float d2, float k) {
 vec3 opTwist(vec3 p, const float k) {
   float c = cos(k * p.y);
   float s = sin(k * p.y);
-  mat3 m = mat3(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0); // Rotation matrix
+  mat3 m = mat3(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0);
   return m * p;
 }
 
-float opDisplacement(float sdf, vec3 p) {
-  float dr = fbm(p); // Displace the point by some amount to create a bumpy surface
-  return sdf + dr;
+// Displace the point by some amount to create a bumpy surface
+float opDisplacement(vec3 p, float sdf) {
+  float dr = sin(p.x) * cos(2.0 * sin(p.y)) * cos(p.z) * 0.5;
+  return opSmoothUnion(sdf, sdf + dr, 0.5);
 }
 
 vec3 opRep(vec3 p, vec3 c) {
@@ -150,6 +150,21 @@ vec3 opTranslate(vec3 p, vec3 t) {
   return p - t;
 }
 
+// Clockwise rotations about each axis
+vec3 opRotateX(vec3 p, float theta) {
+  float c = cos(theta * 0.01745329251);
+  float s = sin(theta * 0.01745329251);
+  mat3 r = mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c);
+  return r * p;
+}
+
+vec3 opRotateY(vec3 p, float theta) {
+  float c = cos(theta * 0.01745329251);
+  float s = sin(theta * 0.01745329251);
+  mat3 r = mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
+  return r * p;
+}
+
 vec3 opRotateZ(vec3 p, float theta) {
   float c = cos(theta * 0.01745329251);
   float s = sin(theta * 0.01745329251);
@@ -157,6 +172,7 @@ vec3 opRotateZ(vec3 p, float theta) {
   return r * p;
 }
 
+// Symmetry across X axis
 vec3 opSymX(vec3 p) {
   return vec3(abs(p.x), p.y, p.z);
 }
@@ -204,6 +220,7 @@ float lumaEyesSDF(vec3 p, vec3 c) {
   return vertCapsuleSDF(opTranslate(opSymX(p - c), vec3(0.3, 0.1, -0.85)), 0.25, 0.15);
 }
 
+// Make the luma's main body
 float lumaSDF(vec3 p, vec3 c) {
   float body = sphereSDF(p, c, 1.0);
   float legs = roundConeSDF(opTranslate(opSymX(p - c), vec3(0.46, -1.15, 0.0)), 0.1, 0.26, 0.5);
@@ -248,20 +265,30 @@ float cubeSDF(vec3 p, vec3 c, vec3 b) {
   return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
 }
 
+// Starbits are much simpler
 float starbitSDF(vec3 p, vec3 c) {
-  float oct = octahedronSDF(p, c, 2.0);
-  float cube = cubeSDF(p, c, vec3(0.97));
+  // Subtract off some value to round the edges for a more cartoony feel
+  float oct = octahedronSDF(p, c, 2.0) - 0.3;
+  float cube = cubeSDF(p, c, vec3(0.97)) - 0.3;
   return opSmoothUnion(oct, cube, 0.25);
 }
 
+// TODO
+float waterPlanetSDF(vec3 p, vec3 c) {
+  float mainPlanet = opDisplacement(p, sphereSDF(p, c, 3.0));
+  return mainPlanet;
+}
+
 SceneObject sceneSDF(vec3 p) {
+  // All objects in the scene
   SceneObject scene[1];
 
   // One luma requires two scene objects due to the different reflection model in the eyes
   // scene[0] = SceneObject(3, lumaSDF(p, vec3(2.0, 1.0, 0.0)), vec3(1.0));
   // scene[1] = SceneObject(1, lumaEyesSDF(p, vec3(2.0, 1.0, 0.0)), vec3(0.3));
 
-  scene[0] = SceneObject(2, starbitSDF(p, vec3(0.0)), vec3(1.0));
+  // scene[0] = SceneObject(2, starbitSDF(p, vec3(0.0)), vec3(0.0, 1.0, 0.3));
+  scene[0] = SceneObject(1, waterPlanetSDF(p, vec3(-6.0, 1.0, -2.0)), vec3(0.619, 0.427, 0.101));
 
   float minDist = 100000000.0;
   int closest = 0;
@@ -271,7 +298,6 @@ SceneObject sceneSDF(vec3 p) {
       closest = i;
     }
   }
-
   return scene[closest];
 }
 //////////////////////
@@ -335,7 +361,7 @@ vec4 galaxy(vec3 p) {
   // Based on Joe's galaxy/nebula shader
   float star1 = starFBM(p * 5.7);
   float star2 = starFBM(p + vec3(1.27, 6.298, 4.243));
-  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.1 * u_Time * fbm(p)));
+  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.05 * u_Time * fbm(p)));
   float starTotal = star1 * star2 * star3 * 3.0;
 
   float falloff = 0.55;
@@ -376,7 +402,7 @@ vec4 lambert(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r)
 }
 
 // Is it necessarily true that light color == specular color?
-vec4 blinnPhong(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r) {
+vec4 blinnPhong(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r, float s) {
   vec3 sumColor = vec3(0.0);
   vec3 nHat = surfaceNormal(p);
 
@@ -384,21 +410,14 @@ vec4 blinnPhong(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray
     vec3 lHat = normalize(lights[i].xyz - p);
     vec3 h = normalize(lHat - r.direction);
     float angle = max(dot(h, nHat), 0.0);
-    float spec = pow(angle, 25.0);
+    float spec = pow(angle, s);
     Ray lightRay = Ray(p, lHat);
     sumColor += lightColors[i] * vec3(spec) * lights[i].w * vec3(softShadow(lightRay, 0.1, 10.0, 8.0));
   }
 
   sumColor /= 3.0;
-  return vec4(sumColor, 1.0);
+  return vec4(sumColor, 0.0);
 }
-
-// float fresnel(vec3 v, vec3 n, float r) {
-//   float cosX = 1.0 - max(dot(v, n), 0.0);
-//   float cos5 = pow(cosX, 5.0);
-//   cos5 = clamp(cos5 * (1.0 - r) + r, 0.0, 1.0);
-//   return cos5;
-// }
 
 // From class slides/GDC talk
 vec4 subsurfaceScatter(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray view, float thinness) {
@@ -419,9 +438,10 @@ vec4 subsurfaceScatter(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseCol
   }
 
   totalCol /= 3.0;
-  return vec4(totalCol, 1.0);
+  return vec4(totalCol, 0.0);
 }
 
+// For starbits; based on Adam's Fresnel shader
 vec4 glossy(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r) {
   vec3 nHat = surfaceNormal(p);
   vec3 vHat = normalize(u_Eye - p);
@@ -430,7 +450,7 @@ vec4 glossy(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r) 
   fresnel = 0.25 + 0.75 * fresnel;
 
   vec3 newCol = mix(baseColor, galaxy(reflect(r.direction, nHat)).xyz, fresnel);
-  return vec4(2.0 * blinnPhong(lights, lightColors, p, newCol, r).xyz - lambert(lights, lightColors, p, baseColor, r).xyz, 1.0);
+  return vec4(8.0 * (blinnPhong(lights, lightColors, p, newCol, r, 80.0).xyz +  vec3(0.08)) - 3.0 * (lambert(lights, lightColors, p, newCol, r).xyz), 0.0);
 }
 ///////////////////////////
 
@@ -448,13 +468,13 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
     vec3 lightColors[3];
 
     // Taken from Emily's Shadertoy example; to be tweaked
-    lights[0] = vec4(6.0, 3.0, 5.0, 2.0); // key light
-    lights[1] = vec4(-6.0, 3.0, 5.0, 1.5); // fill light
+    lights[0] = vec4(6.0, 3.0, 5.0, 3.0); // key light
+    lights[1] = vec4(-6.0, 3.0, 5.0, 2.5); // fill light
 	  lights[2] = vec4(6.0, 5.0, -1.75, 4.0); // back light
     
-    lightColors[0] = vec3(0.9, 0.5, 0.9);
-    lightColors[1] = vec3(0.4, 0.7, 1.0);
-    lightColors[2] = vec3(1.0, 1.0, 0.2);
+    lightColors[0] = vec3(1.0);//vec3(0.9, 0.5, 0.9);
+    lightColors[1] = vec3(1.0);//vec3(0.4, 0.7, 1.0);
+    lightColors[2] = vec3(1.0);//vec3(1.0, 1.0, 0.2);
 
     // We're inside the shape, so the ray hit it; return color of shape + shading
     if (abs(shape.sdf) <= 0.01) {
@@ -466,11 +486,11 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
           break;
         // Blinn-Phong
         case 1:
-          color += blinnPhong(lights, lightColors, p, shape.baseColor, r) * ao;
+          color += blinnPhong(lights, lightColors, p, shape.baseColor, r, 25.0) * ao;
           break;
-        // Glass
+        // Glossy/iridescent material
         case 2:
-          color += glossy(lights, lightColors, p, shape.baseColor, r);
+          color += glossy(lights, lightColors, p, shape.baseColor, r) * ao;
           break;
         // Subsurface scattering
         case 3:
@@ -479,7 +499,8 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
           color += subsurfaceScatter(lights, lightColors, p, shape.baseColor, r, thin) * ao;
           break;
       }
-      return color;
+      // Gamma correction
+      return pow(color, vec4(1.5/2.2));
     }
 
     // We've yet to hit anything; continue marching
@@ -487,7 +508,7 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
   }
 
   // We miss all objects; return the background
-  return galaxy(vec3(fs_Pos, 1.0) * (0.1 * fbm(vec3(0.00001 * u_Time)) + 1.0) * 90.0);
+  return galaxy(vec3(fs_Pos, 1.0) * (0.1 * fbm(vec3(0.000012 * u_Time)) + 1.0) * 90.0);
 }
 
 void main() {
