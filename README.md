@@ -5,7 +5,7 @@ PennKey: jsnipes
 
 ## Images
 <img src="img/ref.jpg">
-Reference: *Super Mario Galaxy* Series
+Reference: <i>Super Mario Galaxy</i> Series
 
 <img src="img/galaxy.PNG">
 Welcome to the Implicit Galaxy!
