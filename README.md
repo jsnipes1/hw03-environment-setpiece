@@ -17,7 +17,7 @@ PennKey: jsnipes
 ...
 
 ## Live Demo
-...
+http://jacobsnipes.com/hw03-environment-setpiece
 
 ## Resources Used
 All resources are cited as comments in the code where they were used
