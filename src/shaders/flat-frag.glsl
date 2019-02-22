@@ -98,26 +98,9 @@ vec3 palette(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
 ///////////////////////////
 
 //////// Toolbox Functions from IQ ////////
-float opUnion(float d1, float d2) {  
-  return min(d1, d2);
-}
-
 float opSmoothUnion(float d1, float d2, float k) {
   float h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0);
   return mix(d2, d1, h) - k * h * (1.0 - h);
-}
-
-float opSubtraction(float d1, float d2) {
-  return max(-d1,d2);
-}
-
-float opIntersection(float d1, float d2) {
-  return max(d1,d2);
-}
-
-float opSmoothIntersection(float d1, float d2, float k) {
-  float h = clamp(0.5 - 0.5 * (d2 - d1) / k, 0.0, 1.0);
-  return mix(d2, d1, h) + k * h * (1.0 - h);
 }
 
 // The below functions are modified so they can be applied to individual objects
@@ -272,11 +255,11 @@ float starbitSDF(vec3 p, vec3 c) {
 }
 
 // TODO
-float planetSDF(vec3 p, vec3 c) {
-  float mainPlanet = sphereSDF(p, c, 10.0);
-  vec3 nHat = normalize(p - c);
-  return mainPlanet;
-}
+// float planetSDF(vec3 p, vec3 c) {
+//   float mainPlanet = sphereSDF(p, c, 10.0);
+//   vec3 nHat = normalize(p - c);
+//   return mainPlanet;
+// }
 
 SceneObject sceneSDF(vec3 p) {
   // All objects in the scene
@@ -393,7 +376,7 @@ float starFBM(vec3 q) {
   float amp = 1.0;
   float maxAmp = 0.0;
 
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < 3; ++i) {
     maxAmp += amp;
     acc += noise(q) * amp;
     amp *= 0.5;
@@ -406,7 +389,7 @@ vec4 galaxy(vec3 p) {
   // Based on Joe's galaxy/nebula shader
   float star1 = starFBM(p * 5.7);
   float star2 = starFBM(p + vec3(1.27, 6.298, 4.243));
-  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.05 * u_Time * fbm(p, 2)));
+  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.05 * u_Time));
   float starTotal = star1 * star2 * star3 * 3.0;
 
   float falloff = 0.55;
@@ -572,5 +555,5 @@ void main() {
 
   Ray r = Ray(u_Eye, dir);
 
-  out_Col = raymarch(r, 0.001, 40, u_Time);
+  out_Col = raymarch(r, 0.001, 20, u_Time);
 }
