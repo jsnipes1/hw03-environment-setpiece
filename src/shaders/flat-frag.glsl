@@ -12,7 +12,7 @@ out vec4 out_Col;
   // Animated environment elements (star bits)
   // 3 uses of noise (planet terrain, luma glow, background)
   // Remap [0, 1] to a set of colors (done)
-  // Toolbox functions (sawtooth wave for star bits)
+  // Toolbox functions (?)
   // Approximated environmental lighting using 3-4 dir. lights (done)
   // Soft shadows (done)
 
@@ -254,13 +254,6 @@ float starbitSDF(vec3 p, vec3 c) {
   return opSmoothUnion(oct, cube, 0.25);
 }
 
-// TODO
-// float planetSDF(vec3 p, vec3 c) {
-//   float mainPlanet = sphereSDF(p, c, 10.0);
-//   vec3 nHat = normalize(p - c);
-//   return mainPlanet;
-// }
-
 SceneObject sceneSDF(vec3 p) {
   // All objects in the scene
   SceneObject scene[9];
@@ -294,29 +287,27 @@ SceneObject sceneSDF(vec3 p) {
   scene[2] = SceneObject(2, bits3, vec3(1.0) - normalize(p));
 
   // Lumas!
-  vec3 lumaC = vec3(2.0, 0.5 * sin(0.005 * u_Time), 0.0);
+  vec3 lumaC = vec3(5.0 * cos(0.05 * u_Time), 5.0 * sin(0.05 * u_Time), 0.0);
   vec3 lumaP = p - lumaC;
   float repLuma = lumaSDF(lumaP, lumaC);
   float repEyes = lumaEyesSDF(lumaP, lumaC);
   scene[3] = SceneObject(3, repLuma, vec3(0.0, 1.0, 1.0));
   scene[4] = SceneObject(1, repEyes, vec3(0.1));
 
-  vec3 lumaC2 = vec3(-1.0, 0.5 * sin(0.005 * u_Time + 0.25) + 3.0, 0.0);
+  float offset = 2.09439510239;
+  vec3 lumaC2 = vec3(5.0 * cos(0.05 * u_Time + offset), 5.0 * sin(0.05 * u_Time + offset), 0.0);
   vec3 lumaP2 = p - lumaC2;
   float repLuma2 = lumaSDF(lumaP2, lumaC2);
   float repEyes2 = lumaEyesSDF(lumaP2, lumaC2);
   scene[5] = SceneObject(3, repLuma2, vec3(1.0, 0.823, 0.121));
   scene[6] = SceneObject(1, repEyes2, vec3(0.1));
 
-  vec3 lumaC3 = vec3(-4.0, 0.5 * sin(0.005 * u_Time - 0.5), 0.0);
+  vec3 lumaC3 = vec3(5.0 * cos(0.05 * u_Time - offset), 5.0 * sin(0.05 * u_Time - offset), 0.0);
   vec3 lumaP3 = p - lumaC3;
   float repLuma3 = lumaSDF(lumaP3, lumaC3);
   float repEyes3 = lumaEyesSDF(lumaP3, lumaC3);
   scene[7] = SceneObject(3, repLuma3, vec3(0.890, 0.007, 0.819));
   scene[8] = SceneObject(1, repEyes3, vec3(0.1));
-
-  // Planet
-  // scene[9] = SceneObject(1, sphereSDF(p, vec3(0.0, 6.5, -40.0), 20.0), vec3(0.0, 0.6, 0.8));
   
   float minDist = 100000000.0;
   int closest = 0;
@@ -396,19 +387,14 @@ vec4 galaxy(vec3 p) {
   float noiseThreshold = 1.9;
 
   starTotal = clamp(starTotal - noiseThreshold + falloff, 0.0, 1.0);
+  vec3 a = vec3(-0.452, -0.082, -0.082);
+  vec3 b = vec3(0.5);
+  vec3 c = vec3(1.0, 0.878, 0.558);
+  vec3 d = vec3(-0.982, 0.348, 0.667);
 
   float weight = starTotal / (7.0 * falloff);
-  return vec4(18.0 * weight * vec3(star1 * 0.6, star2 * 0.4, star3 * 0.4), 1.0);
+  return vec4(18.0 * weight * vec3(star1 * 0.6, star2 * 0.4, star3 * 0.4), 1.0) + vec4(palette(0.8 * weight, a, b, c, d), 0.0);
 }
-
-// vec4 nebula(Ray r) {
-//   float t = pattern(r.direction * u_Time * 0.0003);
-//   vec3 a = vec3(-0.452, -0.082, -0.082);
-//   vec3 b = vec3(0.5);
-//   vec3 c = vec3(1.0, 0.878, 0.558);
-//   vec3 d = vec3(-0.982, 0.348, 0.667);
-//   return vec4(palette(t, a, b, c, d), 0.0) + galaxy(pointOnRay(r, 400.0));
-// }
 ///////////////////////////
 
 //// REFLECTION MODELS ////
@@ -499,9 +485,9 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
     lights[1] = vec4(-6.0, 3.0, 5.0, 2.5); // fill light
 	  lights[2] = vec4(6.0, 5.0, -1.75, 4.0); // back light
     
-    lightColors[0] = vec3(1.0);//vec3(0.9, 0.5, 0.9);
-    lightColors[1] = vec3(1.0);//vec3(0.4, 0.7, 1.0);
-    lightColors[2] = vec3(1.0);//vec3(1.0, 1.0, 0.2);
+    lightColors[0] = vec3(1.0);
+    lightColors[1] = vec3(1.0);
+    lightColors[2] = vec3(1.0);
 
     // We're inside the shape, so the ray hit it; return color of shape + shading
     if (abs(shape.sdf) <= 0.04) {
