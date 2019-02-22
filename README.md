@@ -1,5 +1,6 @@
 # Homework 3: Super Wahoo Galaxy
 Jake Snipes
+
 PennKey: jsnipes
 
 ## Images
