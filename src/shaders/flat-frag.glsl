@@ -8,20 +8,12 @@ uniform float u_Time;
 in vec2 fs_Pos;
 out vec4 out_Col;
 
-// Concept: Super Mario Galaxy scene, including...
-  // Lumas (done)
-  // Flying/floating star bits (animated; use sawtooth function to regenerate the same ones)
-    // Make from octahedron intersected with cube
-  // Small, distinct planets (use low-octave noise to distort normals)
-  // Glowing asteroids? (subsurface scattering)
-  // Galactic background (done)
-
 // Requirements:
   // Animated environment elements (star bits)
   // 3 uses of noise (planet terrain, luma glow, background)
   // Remap [0, 1] to a set of colors (done)
   // Toolbox functions (sawtooth wave for star bits)
-  // Approximated environmental lighting using 3-4 dir. lights (done) + ambient (TODO)
+  // Approximated environmental lighting using 3-4 dir. lights (done)
   // Soft shadows (done)
 
   // Ray-based specular reflection (star bits, planet features, ...)
@@ -74,15 +66,15 @@ float noise(vec3 p) {
   return mix(b, f, inCell.x);
 }
 
-// Multi-octave FBM
-float fbm(vec3 q) {
+// N-octave FBM
+float fbm(vec3 q, int n) {
   float acc = 0.0;
   float freqScale = 2.0;
   float invScale = 1.0 / freqScale;
   float freq = 1.0;
   float amp = 1.0;
 
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < n; ++i) {
     freq *= freqScale;
     amp *= invScale;
     acc += noise(q * freq) * amp;
@@ -92,11 +84,11 @@ float fbm(vec3 q) {
 
 // Recursive FBM pattern
 float pattern(in vec3 p) {
-  vec3 q = vec3(fbm(p + vec3(0.0)),
-                fbm(p + vec3(5.2, 1.3, 2.8)),
-                fbm(p + vec3(1.2, 3.4, 1.2)));
+  vec3 q = vec3(fbm(p + vec3(0.0), 4),
+                fbm(p + vec3(5.2, 1.3, 2.8), 4),
+                fbm(p + vec3(1.2, 3.4, 1.2), 4));
 
-  return fbm(p + 4.0 * q);
+  return fbm(p + 4.0 * q, 4);
 }
 
 // Cosine color palette from IQ
@@ -138,10 +130,11 @@ vec3 opTwist(vec3 p, const float k) {
 
 // Displace the point by some amount to create a bumpy surface
 float opDisplacement(vec3 p, float sdf) {
-  float dr = sin(p.x) * cos(2.0 * sin(p.y)) * cos(p.z) * 0.5;
+  float dr = sin(p.x) * cos(2.0 * sin(p.y)) * cos(p.z) * 1.1;
   return opSmoothUnion(sdf, sdf + dr, 0.5);
 }
 
+// Repeat an SDF without consuming additional memory
 vec3 opRep(vec3 p, vec3 c) {
   return mod(p, c) - 0.5 * c;
 }
@@ -170,6 +163,11 @@ vec3 opRotateZ(vec3 p, float theta) {
   float s = sin(theta * 0.01745329251);
   mat3 r = mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0);
   return r * p;
+}
+
+vec3 opRotate(vec3 p, vec3 angles) {
+  // ZYX rotation
+  return opRotateX(opRotateY(opRotateZ(p, angles.z), angles.y), angles.x);
 }
 
 // Symmetry across X axis
@@ -274,22 +272,69 @@ float starbitSDF(vec3 p, vec3 c) {
 }
 
 // TODO
-float waterPlanetSDF(vec3 p, vec3 c) {
-  float mainPlanet = opDisplacement(p, sphereSDF(p, c, 3.0));
+float planetSDF(vec3 p, vec3 c) {
+  float mainPlanet = sphereSDF(p, c, 10.0);
+  vec3 nHat = normalize(p - c);
   return mainPlanet;
 }
 
 SceneObject sceneSDF(vec3 p) {
   // All objects in the scene
-  SceneObject scene[1];
+  SceneObject scene[9];
 
-  // One luma requires two scene objects due to the different reflection model in the eyes
-  // scene[0] = SceneObject(3, lumaSDF(p, vec3(2.0, 1.0, 0.0)), vec3(1.0));
-  // scene[1] = SceneObject(1, lumaEyesSDF(p, vec3(2.0, 1.0, 0.0)), vec3(0.3));
+  // Starbits flying through space
+  vec3 cen = vec3(0.0, 0.0, 30.0);
+  vec3 rep = vec3(70.0, 60.0, 0.0);
+  vec3 newP = opRep(p - cen, vec3(0.0));
+  cen = opTranslate(cen, vec3(-u_Time, u_Time, 0.0) * 0.1);
+  newP = opRep(p - cen, rep);
+  newP = opRotate(newP, vec3(0.0, 2.0 * u_Time, u_Time)) + cen;
+  float repStarbits = starbitSDF(newP, cen);
+  scene[0] = SceneObject(2, repStarbits, vec3(1.0) - normalize(p));
 
-  // scene[0] = SceneObject(2, starbitSDF(p, vec3(0.0)), vec3(0.0, 1.0, 0.3));
-  scene[0] = SceneObject(1, waterPlanetSDF(p, vec3(-6.0, 1.0, -2.0)), vec3(0.619, 0.427, 0.101));
+  vec3 newCen = cen + vec3(10.0, 10.0, 2.0);
+  vec3 newRep = rep + vec3(10.0, 10.0, 0.0);
+  vec3 newNewP = opRep(p - newCen, vec3(0.0));
+  newCen = opTranslate(newCen, vec3(-u_Time * 2.0, u_Time, 0.0) * 0.1);
+  newNewP = opRep(p - newCen, newRep);
+  newNewP = opRotate(newNewP, vec3(u_Time, 0.0, 2.0 * u_Time)) + newCen;
+  float moreBits = starbitSDF(newNewP, newCen);
+  scene[1] = SceneObject(2, moreBits, vec3(1.0) - normalize(p));
 
+  vec3 cen3 = cen + vec3(15.0, 17.0, -3.0);
+  vec3 rep3 = rep + vec3(15.0, 15.0, 0.0);
+  vec3 p3 = opRep(p - cen3, vec3(0.0));
+  cen3 = opTranslate(cen3, vec3(u_Time * 2.0, u_Time * 3.0, 0.0) * 0.1);
+  p3 = opRep(p - cen3, rep3);
+  p3 = opRotate(p3, vec3(u_Time, 0.0, 2.0 * u_Time)) + cen3;
+  float bits3 = starbitSDF(p3, cen3);
+  scene[2] = SceneObject(2, bits3, vec3(1.0) - normalize(p));
+
+  // Lumas!
+  vec3 lumaC = vec3(2.0, 0.5 * sin(0.005 * u_Time), 0.0);
+  vec3 lumaP = p - lumaC;
+  float repLuma = lumaSDF(lumaP, lumaC);
+  float repEyes = lumaEyesSDF(lumaP, lumaC);
+  scene[3] = SceneObject(3, repLuma, vec3(0.0, 1.0, 1.0));
+  scene[4] = SceneObject(1, repEyes, vec3(0.1));
+
+  vec3 lumaC2 = vec3(-1.0, 0.5 * sin(0.005 * u_Time + 0.25) + 3.0, 0.0);
+  vec3 lumaP2 = p - lumaC2;
+  float repLuma2 = lumaSDF(lumaP2, lumaC2);
+  float repEyes2 = lumaEyesSDF(lumaP2, lumaC2);
+  scene[5] = SceneObject(3, repLuma2, vec3(1.0, 0.823, 0.121));
+  scene[6] = SceneObject(1, repEyes2, vec3(0.1));
+
+  vec3 lumaC3 = vec3(-4.0, 0.5 * sin(0.005 * u_Time - 0.5), 0.0);
+  vec3 lumaP3 = p - lumaC3;
+  float repLuma3 = lumaSDF(lumaP3, lumaC3);
+  float repEyes3 = lumaEyesSDF(lumaP3, lumaC3);
+  scene[7] = SceneObject(3, repLuma3, vec3(0.890, 0.007, 0.819));
+  scene[8] = SceneObject(1, repEyes3, vec3(0.1));
+
+  // Planet
+  // scene[9] = SceneObject(1, sphereSDF(p, vec3(0.0, 6.5, -40.0), 20.0), vec3(0.0, 0.6, 0.8));
+  
   float minDist = 100000000.0;
   int closest = 0;
   for (int i = 0; i < scene.length(); ++i) {
@@ -361,7 +406,7 @@ vec4 galaxy(vec3 p) {
   // Based on Joe's galaxy/nebula shader
   float star1 = starFBM(p * 5.7);
   float star2 = starFBM(p + vec3(1.27, 6.298, 4.243));
-  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.05 * u_Time * fbm(p)));
+  float star3 = starFBM(p + vec3(0.23, 0.45, 0.67) * 5.0 + 0.005 * sin(0.05 * u_Time * fbm(p, 2)));
   float starTotal = star1 * star2 * star3 * 3.0;
 
   float falloff = 0.55;
@@ -401,7 +446,6 @@ vec4 lambert(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r)
   return vec4(sumColor, 1.0);
 }
 
-// Is it necessarily true that light color == specular color?
 vec4 blinnPhong(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray r, float s) {
   vec3 sumColor = vec3(0.0);
   vec3 nHat = surfaceNormal(p);
@@ -422,9 +466,9 @@ vec4 blinnPhong(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray
 // From class slides/GDC talk
 vec4 subsurfaceScatter(vec4 lights[3], vec3 lightColors[3], vec3 p, vec3 baseColor, Ray view, float thinness) {
   // Tunable parameters
-  float distort = 0.2;
-  float glow = 4.0; // Similar to Blinn-Phong's specular power; higher => tighter highlight
-  float scale = 10.0; // Higher => larger lit area
+  float distort = 0.4;
+  float glow = 3.0; // Similar to Blinn-Phong's specular power; higher => tighter highlight
+  float scale = 14.0; // Higher => larger lit area
   float ambient = 0.0;
 
   vec3 totalCol = vec3(0.0);
@@ -467,7 +511,7 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
     vec4 lights[3];
     vec3 lightColors[3];
 
-    // Taken from Emily's Shadertoy example; to be tweaked
+    // From Emily's Shadertoy example
     lights[0] = vec4(6.0, 3.0, 5.0, 3.0); // key light
     lights[1] = vec4(-6.0, 3.0, 5.0, 2.5); // fill light
 	  lights[2] = vec4(6.0, 5.0, -1.75, 4.0); // back light
@@ -477,7 +521,7 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
     lightColors[2] = vec3(1.0);//vec3(1.0, 1.0, 0.2);
 
     // We're inside the shape, so the ray hit it; return color of shape + shading
-    if (abs(shape.sdf) <= 0.01) {
+    if (abs(shape.sdf) <= 0.04) {
       vec4 ao = vec4(vec3(ambientOcclusion(p, surfaceNormal(p), 1.0)), 1.0);
       vec4 color = lambert(lights, lightColors, p, shape.baseColor, r) * ao;
       switch (shape.reflectionModel) {
@@ -508,7 +552,7 @@ vec4 raymarch(Ray r, const float start, const int maxIterations, float t) {
   }
 
   // We miss all objects; return the background
-  return galaxy(vec3(fs_Pos, 1.0) * (0.1 * fbm(vec3(0.000012 * u_Time)) + 1.0) * 90.0);
+  return galaxy(vec3(fs_Pos, 1.0) * (0.1 * fbm(vec3(0.000012 * u_Time), 2) + 1.0) * 90.0);
 }
 
 void main() {
@@ -528,5 +572,5 @@ void main() {
 
   Ray r = Ray(u_Eye, dir);
 
-  out_Col = raymarch(r, 0.001, 256, u_Time);
+  out_Col = raymarch(r, 0.001, 40, u_Time);
 }
